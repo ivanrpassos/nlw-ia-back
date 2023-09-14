@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { streamToResponse, OpenAIStream } from 'ai';
 import { prisma } from '../lib/prisma';
 import { openai } from '../lib/openai';
 
@@ -9,11 +10,11 @@ export async function generateAICompletionRoute(
   app.post('/ai/generate', async (req, rep) => {
     const bodySchema = z.object({
       videoId: z.string().uuid(),
-      template: z.string(),
+      prompt: z.string(),
       temperature: z.number().min(0).max(1).default(0.5),
     });
 
-    const { videoId, template, temperature } =
+    const { videoId, prompt, temperature } =
       bodySchema.parse(req.body);
 
     const video = await prisma.video.findUniqueOrThrow({
@@ -28,7 +29,7 @@ export async function generateAICompletionRoute(
       });
     }
 
-    const promptMessage = template.replace(
+    const promptMessage = prompt.replace(
       '{transcription}',
       video.transcription,
     );
@@ -42,8 +43,17 @@ export async function generateAICompletionRoute(
         },
       ],
       temperature: temperature,
+      stream: true,
     });
 
-    return response;
+    const stream = OpenAIStream(response);
+
+    streamToResponse(stream, rep.raw, {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods':
+          'GET, POST, PUT, DELETE, OPTIONS',
+      },
+    });
   });
 }
